@@ -5,6 +5,7 @@ const { Agenda } = require("agenda");
 const agendash = require("../app");
 const express = require("express");
 const program = require("commander");
+const { watchFile } = require("fs");
 
 program
   .option(
@@ -44,21 +45,53 @@ if (!program.path.startsWith("/")) {
   process.exit(1);
 }
 
-const app = express();
+const startAgenda = (connectionString) => {
+  const app = express();
 
-const agenda = new Agenda().database(program.db, program.collection);
-app.use(
-  program.path,
-  agendash(agenda, {
-    title: program.title,
-  })
-);
-
-app.set("port", program.port);
-
-const server = http.createServer(app);
-server.listen(program.port, () => {
-  console.log(
-    `Agendash started http://localhost:${program.port}${program.path}`
+  const agenda = new Agenda().database(connectionString || program.db, program.collection);
+  app.use(
+    program.path,
+    agendash(agenda, {
+      title: program.title,
+    })
   );
+  
+  app.set("port", program.port);
+  
+  const server = http.createServer(app);
+  server.listen(program.port, () => {
+    console.log(
+      `Agendash started http://localhost:${program.port}${program.path}`
+    );
+  });
+
+  return server;
+}
+
+let server = startAgenda();
+
+watchFile(process.env.APT_MONGODB_SECRET_PATH || '/vault/secrets/mongodb', () => {
+
+  if (process.env.DEBUG) {
+    console.log('Got db file event');
+  }
+
+  server.close();
+
+  const newConnectionUrl = fs.readFileSync(path, 'utf8');
+
+  const regex = /"(.*)"/gm;
+  const newConnectionUrlMatch = regex.exec(newConnectionUrl);
+
+  if (newConnectionUrlMatch && newConnectionUrlMatch.length > 1) {
+    if (process.env.DEBUG) {
+      console.log('Rotating database connection');
+    }
+
+    server = startAgenda(newConnectionUrlMatch[1]);
+
+    if (process.env.DEBUG) {
+      console.log('Finished rotating database connection');
+    }
+  }
 });
